@@ -1,52 +1,53 @@
 # Biznes Himoya Telegram boti
 
-Bu loyiha mijozlarning yuridik xizmatlar, sertifikatlashtirish va bojxona xizmatlari bo‘yicha murojaatlarini qabul qilib, belgilangan Telegram guruhiga yuboradi.
+Telegram orqali sertifikatlashtirish, import va eksport xizmatlari bo‘yicha murojaatlarni yig‘adi. Mijoz ma’lumotlarni ketma-ket yuboradi, yakunda tekshiradi va istalgan oldingi javobini almashtirishi mumkin. Murojaat hamda ilova qilingan fayllar avtomatik ravishda sozlangan mavjud Telegram guruhiga yuboriladi.
 
-## Hozirgi imkoniyatlar
-- `/start` va `/help`
-- Asosiy menyu va xizmat yo‘nalishlari
-- Mijozdan ism, telefon, korxona nomi va murojaat tafsilotlarini so‘rash
-- Murojaatni Telegram guruhiga yuborish
-- `/cancel` orqali jarayonni bekor qilish
-- Docker orqali qayta ishga tushishda avtomatik tiklanish
+## Asosiy imkoniyatlar
+- Yuridik xizmatlar hozircha menyuga kiritilmagan.
+- 18 ta sertifikatlashtirish yo‘nalishi.
+- Import va eksport xizmatlari uchun alohida menyular.
+- Mijoz matn, rasm, video yoki hujjat yuborishi mumkin.
+- Ixtiyoriy hujjat bo‘lmasa, o‘tkazib yuborish mumkin.
+- Yuborishdan oldin tekshirish va istalgan maydonni tahrirlash.
+- Murojaatni mavjud Telegram guruhiga va mijozga tasdiq xabarini yuborish.
+- Aloqa: +9989777121710, @yupiter_93, +998917399949.
 
-## Xavfsizlik
-Oldingi skrinshotda token oshkor bo‘lgan. `@BotFather` ichida `/mybots` → bot → `API Token` → `Revoke current token` orqali tokenni yangilang. Yangi tokenni hech kimga yubormang. Uni faqat serverdagi `.env` fayliga kiriting.
+## 1. Telegram sozlamalari
+1. `@BotFather` orqali bot tokenini oling. Tokenni hech kimga yubormang.
+2. Mijoz murojaatlari keladigan mavjud Telegram guruhingizga botni qo‘shing.
+3. Botga guruhda xabar yuborish huquqini bering.
+4. Guruh ID raqamini aniqlang; superguruh ID ko‘pincha `-100...` bilan boshlanadi.
+5. `.env.example` faylidan nusxa olib `.env` deb nomlang.
+6. `.env` ichida `BOT_TOKEN` va `LEADS_CHAT_ID` qiymatlarini o‘zingiznikiga almashtiring.
 
-## 1. Telegram guruhini tayyorlash
-1. Murojaatlar uchun alohida Telegram guruh yarating.
-2. `@HalEac_bot` botini guruhga qo‘shing.
-3. Botga xabar yuborish huquqi borligini tekshiring.
-4. Guruh ID raqamini aniqlang. Buni xavfsiz usulda olishga yordam beruvchi Telegram bot/API vositasidan foydalanish mumkin; ID odatda superguruhda `-100...` bilan boshlanadi.
-5. Guruh ID sini `.env` faylidagi `LEADS_CHAT_ID` qiymatiga kiriting.
+**Tokenni kodga yozmang va GitHub’ga `.env` faylini yuklamang.** Agar token avval oshkor bo‘lgan bo‘lsa, BotFather orqali yangisini yarating.
 
-## 2. Bulutli serverda ishga tushirish (Docker)
-Ubuntu 22.04/24.04 server va Docker Compose kerak.
-
-Loyiha papkasiga fayllarni joylashtirib:
+## 2. Docker bilan ishga tushirish
 ```bash
 cp .env.example .env
-nano .env
-```
-`.env` faylida `BOT_TOKEN` va `LEADS_CHAT_ID` ni to‘ldiring. `ADMIN_IDS` hozirgi versiyada qo‘shimcha sozlama sifatida qoldirilgan.
-
-So‘ng:
-```bash
+# .env faylini tahrirlang
 docker compose up -d --build
 docker compose logs -f
-```
-Ishlayotganini tekshirish:
-```bash
-docker compose ps
 ```
 To‘xtatish:
 ```bash
 docker compose down
 ```
 
-## 3. Muhim
-- Bu loyiha polling usulida ishlaydi; odatda domen yoki HTTPS webhook talab qilmaydi.
-- Hosting serveri va Telegram tokeni foydalanuvchi tomonidan xavfsiz sozlanadi.
-- Ishga tushirgandan so‘ng test guruhida sinab ko‘ring.
-- Hozircha mijoz ma’lumotlari doimiy ma’lumotlar bazasiga yozilmaydi; ular faqat Telegram guruhiga yuboriladi.
-- Bot huquqiy maslahatni avtomatik ravishda bermaydi; u murojaatlarni qabul qiladi.
+## 3. Lokal ishga tushirish
+Python 3.12 tavsiya qilinadi.
+```bash
+python -m venv .venv
+# Linux/macOS:
+source .venv/bin/activate
+# Windows PowerShell:
+# .venv\\Scripts\\Activate.ps1
+pip install -r requirements.txt
+python bot.py
+```
+
+## Eslatmalar
+- Bu bot polling usulidan foydalanadi; doimiy ishlashi uchun kompyuter/server doim yoqilgan bo‘lishi kerak.
+- Murojaatlar ma’lumotlar bazasiga saqlanmaydi; Telegram guruhiga yuboriladi.
+- Hujjatlar ro‘yxati dastlabki ma’lumot yig‘ish uchun mo‘ljallangan. Aniq talablar mahsulot turi, TN VED kodi, mamlakat va amaldagi qoidalarga qarab mutaxassis tomonidan tekshirilishi kerak.
+- Guruhga murojaat yuborish muvaffaqiyatli bo‘lishi uchun `LEADS_CHAT_ID` to‘g‘ri bo‘lishi va bot guruhda xabar yubora olishi shart.
