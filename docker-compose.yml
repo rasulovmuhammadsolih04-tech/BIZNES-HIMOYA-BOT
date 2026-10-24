@@ -1,0 +1,7 @@
+services:
+  biznes-himoya-bot:
+    build: .
+    container_name: biznes-himoya-bot
+    restart: unless-stopped
+    env_file:
+      - .env
