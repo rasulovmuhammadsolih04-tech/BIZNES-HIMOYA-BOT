@@ -27,23 +27,28 @@ SERVICE, NAME, PHONE, COMPANY, DETAILS = range(5)
 
 WELCOME = (
     "Assalomu alaykum! 👋\n\n"
-    "Biznes Himoya xizmatlariga xush kelibsiz.\n"
+    "Toshkent Biznesni Himoya Qilish Markazi xizmatlariga xush kelibsiz.\n"
     "Biznesingiz bo‘yicha murojaat qoldirish yoki xizmatlar haqida "
     "ma’lumot olish uchun quyidagi menyudan foydalaning."
 )
 MAIN_MENU = ReplyKeyboardMarkup(
     [
-        ["⚖️ Yuridik xizmatlar", "📄 Sertifikatlashtirish"],
-        ["🚚 Bojxona xizmatlari", "📝 Ariza qoldirish"],
-        ["📞 Bog‘lanish", "ℹ️ Biz haqimizda"],
+        ["📄 Mahsulot sertifikatlashtirish"],
+        ["🚚 Bojxona rasmiylashtiruvi"],
+        ["💬 Sertifikat va hujjatlar bo‘yicha maslahat"],
+        ["🌍 Eksport hujjatlari", "📦 Import hujjatlari"],
+        ["📝 Mijoz murojaati yuborish"],
+        ["📞 Markaz bilan bog‘lanish"],
     ],
     resize_keyboard=True
 )
 SERVICES = {
-    "⚖️ Yuridik xizmatlar": "Yuridik xizmatlar",
-    "📄 Sertifikatlashtirish": "Sertifikatlashtirish",
-    "🚚 Bojxona xizmatlari": "Bojxona xizmatlari",
-    "📝 Ariza qoldirish": "Umumiy murojaat",
+    "📄 Mahsulot sertifikatlashtirish": "Mahsulot sertifikatlashtirish",
+    "🚚 Bojxona rasmiylashtiruvi": "Bojxona rasmiylashtiruvi",
+    "💬 Sertifikat va hujjatlar bo‘yicha maslahat": "Sertifikat va hujjatlar bo‘yicha maslahat",
+    "🌍 Eksport hujjatlari": "Eksport hujjatlari",
+    "📦 Import hujjatlari": "Import hujjatlari",
+    "📝 Mijoz murojaati yuborish": "Mijoz murojaati",
 }
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -52,7 +57,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def about(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Biznes Himoya — tadbirkorlar uchun yuridik va biznes xizmatlari.\n\n"
+        "Toshkent Biznesni Himoya Qilish Markazi — tadbirkorlar uchun sertifikatlashtirish, bojxona va biznes hujjatlari bo‘yicha xizmatlar.\n\n"
         "Xizmatlar va murojaat yuborish uchun menyudan tanlang.",
         reply_markup=MAIN_MENU
     )
@@ -81,8 +86,11 @@ async def begin_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Qaysi xizmat bo‘yicha murojaat qilmoqchisiz?",
         reply_markup=ReplyKeyboardMarkup(
-            [["⚖️ Yuridik xizmatlar"], ["📄 Sertifikatlashtirish"],
-             ["🚚 Bojxona xizmatlari"], ["Boshqa masala"], ["❌ Bekor qilish"]],
+            [["📄 Mahsulot sertifikatlashtirish"],
+             ["🚚 Bojxona rasmiylashtiruvi"],
+             ["💬 Sertifikat va hujjatlar bo‘yicha maslahat"],
+             ["🌍 Eksport hujjatlari"], ["📦 Import hujjatlari"],
+             ["Boshqa masala"], ["❌ Bekor qilish"]],
             resize_keyboard=True
         )
     )
@@ -179,7 +187,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Iltimos, menyudagi bo‘limlardan birini tanlang yoki «📝 Ariza qoldirish» tugmasini bosing.",
+        "Iltimos, menyudagi bo‘limlardan birini tanlang yoki «📝 Mijoz murojaati yuborish» tugmasini bosing.",
         reply_markup=MAIN_MENU
     )
 
@@ -200,8 +208,8 @@ def main():
 
     conversation = ConversationHandler(
         entry_points=[
-            MessageHandler(filters.Regex(r"^(⚖️ Yuridik xizmatlar|📄 Sertifikatlashtirish|🚚 Bojxona xizmatlari)$"), choose_service),
-            MessageHandler(filters.Regex(r"^📝 Ariza qoldirish$"), begin_request),
+            MessageHandler(filters.Regex(r"^(📄 Mahsulot sertifikatlashtirish|🚚 Bojxona rasmiylashtiruvi|💬 Sertifikat va hujjatlar bo‘yicha maslahat|🌍 Eksport hujjatlari|📦 Import hujjatlari)$"), choose_service),
+            MessageHandler(filters.Regex(r"^📝 Mijoz murojaati yuborish$"), begin_request),
         ],
         states={
             SERVICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, service_choice)],
@@ -220,7 +228,7 @@ def main():
     app.add_handler(CommandHandler("help", start))
     app.add_handler(conversation)
     app.add_handler(MessageHandler(filters.Regex(r"^ℹ️ Biz haqimizda$"), about))
-    app.add_handler(MessageHandler(filters.Regex(r"^📞 Bog‘lanish$"), contact_info))
+    app.add_handler(MessageHandler(filters.Regex(r"^📞 Markaz bilan bog‘lanish$"), contact_info))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown))
     log.info("Biznes Himoya bot ishga tushmoqda...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
