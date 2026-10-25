@@ -1,16 +1,19 @@
 import os
+import sys
+import asyncio
 import logging
 from html import escape
+from pathlib import Path
 from typing import Any
 
 from telegram import (
     Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup,
-    InlineKeyboardButton, InputMediaDocument
+    InlineKeyboardButton
 )
-from telegram.constants import ChatType
+from telegram.error import RetryAfter
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
-    ConversationHandler, ContextTypes, filters
+    ConversationHandler, ContextTypes, PicklePersistence, filters
 )
 
 logging.basicConfig(
@@ -20,12 +23,65 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("biznes_himoya")
 
+BASE_DIR = Path(__file__).resolve().parent
+ENV_FILE = BASE_DIR / ".env"
+DATA_DIR = BASE_DIR / "data"
+
+# ===================== ALOQA MA'LUMOTLARI (shu yerdan tahrirlang) =====================
+CONTACT_PHONES = ["+998 97 771 21 710", "+998 91 739 99 49"]
+CONTACT_TELEGRAM = "@yupiter_93"
+# =====================================================================================
+
+
+def load_env_file() -> None:
+    """.env faylini o'qiydi (python-dotenv shart emas). Tizim o'zgaruvchilari ustun turadi."""
+    if not ENV_FILE.exists():
+        return
+    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def parse_chat_id(raw: str) -> "int | str":
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    try:
+        return int(raw)
+    except ValueError:
+        return raw
+
+
+load_env_file()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-LEADS_CHAT_ID_RAW = os.getenv("LEADS_CHAT_ID", "").strip()
-try:
-    LEADS_CHAT_ID: int | str = int(LEADS_CHAT_ID_RAW) if LEADS_CHAT_ID_RAW else ""
-except ValueError:
-    LEADS_CHAT_ID = LEADS_CHAT_ID_RAW
+if BOT_TOKEN == "PASTE_YOUR_BOT_TOKEN_HERE":
+    BOT_TOKEN = ""
+LEADS_CHAT_ID: "int | str" = parse_chat_id(os.getenv("LEADS_CHAT_ID", ""))
+if LEADS_CHAT_ID == -1001234567890:  # .env.example dagi namuna qiymat
+    LEADS_CHAT_ID = ""
+
+
+def first_run_wizard() -> None:
+    """Token yo'q bo'lsa va dastur terminalda ochilgan bo'lsa, savol berib .env yaratadi."""
+    global BOT_TOKEN, LEADS_CHAT_ID
+    if BOT_TOKEN or not sys.stdin or not sys.stdin.isatty():
+        return
+    print("\n=== Birinchi ishga tushirish ===")
+    print("1) Telegramda @BotFather ga kiring -> /newbot -> bergan TOKENni oling.")
+    token = input("Bot tokenini shu yerga qo'ying: ").strip()
+    if not token:
+        return
+    print("\n2) Murojaatlar keladigan guruh ID raqami.")
+    print("   Hozir bilmasangiz — Enter bosing. Botni ishga tushirgach, guruhga botni qo'shib /id deb yozing,")
+    print("   bot ID ni aytadi. Keyin shu ID ni .env fayliga yozib, botni qayta ishga tushiring.")
+    chat = input("Guruh ID (masalan -1001234567890): ").strip()
+    ENV_FILE.write_text(f"BOT_TOKEN={token}\nLEADS_CHAT_ID={chat}\nADMIN_IDS=\n", encoding="utf-8")
+    BOT_TOKEN = token
+    LEADS_CHAT_ID = parse_chat_id(chat)
+    print("\n.env fayli saqlandi. Bot ishga tushmoqda...\n")
 
 # Conversation states
 CHOOSING, CERT_MENU, CUSTOMS_MENU, COLLECTING, REVIEW, EDITING = range(6)
@@ -286,26 +342,53 @@ def clean_text(value: str, max_len: int = 3500) -> str:
     return (value or "").strip()[:max_len]
 
 
-def answer_description(message) -> dict[str, Any]:
-    if message.contact:
-        return {"text": message.contact.phone_number, "kind": "contact", "file_id": None, "caption": ""}
+FILE_LABELS = {
+    "photo": "Rasm", "document": "Fayl", "video": "Video",
+    "voice": "Ovozli xabar", "audio": "Audio", "video_note": "Video xabar",
+}
+
+
+def extract_file(message) -> dict[str, str] | None:
     if message.photo:
-        return {"text": clean_text(message.caption or "Rasm ilova qilindi"), "kind": "photo", "file_id": message.photo[-1].file_id, "caption": clean_text(message.caption or "")}
+        return {"kind": "photo", "file_id": message.photo[-1].file_id}
     if message.document:
-        name = message.document.file_name or "Hujjat"
-        return {"text": clean_text(message.caption or f"Fayl: {name}"), "kind": "document", "file_id": message.document.file_id, "caption": clean_text(message.caption or "")}
-    if message.text:
-        return {"text": clean_text(message.text), "kind": "text", "file_id": None, "caption": ""}
+        return {"kind": "document", "file_id": message.document.file_id}
     if message.video:
-        return {"text": clean_text(message.caption or "Video ilova qilindi"), "kind": "video", "file_id": message.video.file_id, "caption": clean_text(message.caption or "")}
-    return {"text": "Qo‘llab-quvvatlanmaydigan fayl turi", "kind": "text", "file_id": None, "caption": ""}
+        return {"kind": "video", "file_id": message.video.file_id}
+    if message.voice:
+        return {"kind": "voice", "file_id": message.voice.file_id}
+    if message.audio:
+        return {"kind": "audio", "file_id": message.audio.file_id}
+    if message.video_note:
+        return {"kind": "video_note", "file_id": message.video_note.file_id}
+    return None
+
+
+def answer_description(message) -> dict[str, Any] | None:
+    """Javobni saqlash uchun lug'atga aylantiradi. Qo'llab-quvvatlanmasa None qaytaradi."""
+    if message.contact:
+        return {"text": message.contact.phone_number, "kind": "contact", "files": [], "caption": ""}
+    file = extract_file(message)
+    if file:
+        caption = clean_text(message.caption or "")
+        if message.document and message.document.file_name:
+            default = f"Fayl: {message.document.file_name}"
+        else:
+            default = f"{FILE_LABELS[file['kind']]} ilova qilindi"
+        return {"text": caption or default, "kind": file["kind"], "files": [file], "caption": caption}
+    if message.text:
+        return {"text": clean_text(message.text), "kind": "text", "files": [], "caption": ""}
+    return None
 
 
 def value_summary(value: dict[str, Any] | None) -> str:
     if not value:
         return "—"
     text = value.get("text", "—") or "—"
-    if value.get("kind") in {"photo", "document", "video"}:
+    n = len(value.get("files") or [])
+    if n > 1:
+        return f"{text} 📎 ({n} ta fayl)"
+    if n == 1:
         return f"{text} 📎"
     return text
 
@@ -324,11 +407,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return CHOOSING
 
 async def contact_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    phones = "\n".join(f"☎️ {p}" for p in CONTACT_PHONES)
     await update.effective_message.reply_text(
         "📞 Biz bilan bog‘lanish\n\n"
-        "☎️ +998 97 771 21 710\n"
-        "☎️ +998 91 739 99 49\n"
-        "✈️ Telegram: @yupiter_93\n\n"
+        f"{phones}\n"
+        f"✈️ Telegram: {CONTACT_TELEGRAM}\n\n"
         "Raqamlardan biriga qo‘ng‘iroq qiling yoki Telegram orqali yozing.",
         reply_markup=MAIN_MENU,
         disable_web_page_preview=True,
@@ -443,6 +526,28 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await begin_flow(update, context, f"{kind.title()} — {service}", flow)
     return CHOOSING
 
+def attach_album_item(message, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Xabar oldingi javob bilan bir albomdan bo'lsa, faylni o'sha javobga qo'shadi."""
+    group = message.media_group_id
+    if not group or context.user_data.get("last_group") != group:
+        return False
+    file = extract_file(message)
+    idx = context.user_data.get("last_idx")
+    answers = context.user_data.get("answers") or []
+    if file is None or idx is None or idx >= len(answers) or not answers[idx]:
+        return False
+    answers[idx].setdefault("files", []).append(file)
+    return True
+
+
+async def album_tail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tekshiruv bosqichida kelib qolgan albom qoldiqlari (oxirgi savolga albom yuborilganda)."""
+    if not attach_album_item(update.effective_message, context):
+        await update.effective_message.reply_text(
+            "Fayl qo‘shish uchun ‘✏️ Ma’lumotni tahrirlash’ tugmasidan foydalaning.")
+    return REVIEW
+
+
 async def receive_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     flow = context.user_data.get("flow")
     answers = context.user_data.get("answers")
@@ -455,26 +560,31 @@ async def receive_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     raw = clean_text(message.text or "") if message.text else ""
 
+    # Albom (bir nechta rasm/fayl bir vaqtda): birinchisi javob bo'ladi, qolganlari shu javobga qo'shiladi.
+    if attach_album_item(message, context):
+        return COLLECTING
+
     if raw == BTN_CANCEL:
         return await cancel(update, context)
     if raw == BTN_HOME:
         context.user_data.clear()
         await message.reply_text("Asosiy menyu:", reply_markup=MAIN_MENU)
         return CHOOSING
+    context.user_data["last_group"] = None
     if raw == BTN_SKIP:
         if not flow[step][1]:
             await message.reply_text("Bu maydon majburiy. Iltimos, ma’lumot kiriting yoki hujjat yuboring.")
             return COLLECTING
-        answers[step] = {"text": "Mavjud emas / o‘tkazib yuborildi", "kind": "text", "file_id": None, "caption": ""}
+        answers[step] = {"text": "Mavjud emas / o‘tkazib yuborildi", "kind": "text", "files": [], "caption": ""}
     else:
         answer = answer_description(message)
-        if answer["text"] == "Qo‘llab-quvvatlanmaydigan fayl turi":
-            await message.reply_text("Iltimos, matn, rasm, PDF yoki hujjat faylini yuboring.")
-            return COLLECTING
-        if not answer.get("text") and not answer.get("file_id"):
-            await message.reply_text("Iltimos, ma’lumot yozing yoki hujjat yuboring.")
+        if answer is None:
+            await message.reply_text("Iltimos, matn, rasm, video, ovozli xabar yoki hujjat (PDF, Word, Excel) yuboring.")
             return COLLECTING
         answers[step] = answer
+        if message.media_group_id:
+            context.user_data["last_group"] = message.media_group_id
+            context.user_data["last_idx"] = step
 
     context.user_data["answers"] = answers
     if editing_index is not None:
@@ -582,6 +692,32 @@ async def edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.message.reply_text(f"Tahrirlash — {idx+1}/{len(flow)}. {question}\n\nYangi ma’lumotni yuboring.", reply_markup=reply_markup)
     return COLLECTING
 
+async def send_with_retry(method, **kwargs):
+    """Telegram tezlik chekloviga (RetryAfter) tushsa, kutib qayta uriniladi."""
+    try:
+        return await method(**kwargs)
+    except RetryAfter as e:
+        await asyncio.sleep(float(e.retry_after) + 1)
+        return await method(**kwargs)
+
+
+async def send_file(bot, chat_id, file: dict[str, str], caption: str):
+    kind, file_id = file["kind"], file["file_id"]
+    if kind == "photo":
+        await send_with_retry(bot.send_photo, chat_id=chat_id, photo=file_id, caption=caption)
+    elif kind == "video":
+        await send_with_retry(bot.send_video, chat_id=chat_id, video=file_id, caption=caption)
+    elif kind == "voice":
+        await send_with_retry(bot.send_voice, chat_id=chat_id, voice=file_id, caption=caption)
+    elif kind == "audio":
+        await send_with_retry(bot.send_audio, chat_id=chat_id, audio=file_id, caption=caption)
+    elif kind == "video_note":
+        await send_with_retry(bot.send_message, chat_id=chat_id, text=caption)
+        await send_with_retry(bot.send_video_note, chat_id=chat_id, video_note=file_id)
+    else:
+        await send_with_retry(bot.send_document, chat_id=chat_id, document=file_id, caption=caption)
+
+
 async def submit_lead(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     answers = context.user_data.get("answers", [])
@@ -590,6 +726,7 @@ async def submit_lead(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not LEADS_CHAT_ID:
         await query.message.reply_text("⚠️ Murojaat yuborilmadi: bot sozlamasida LEADS_CHAT_ID kiritilmagan. Administratorga xabar bering.")
+        log.error("LEADS_CHAT_ID kiritilmagan: murojaat yuborilmadi. Guruhda /id deb yozib ID ni oling.")
         return REVIEW
     username = f"@{user.username}" if user and user.username else "username yo‘q"
     lead_lines = [
@@ -608,23 +745,16 @@ async def submit_lead(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chunk = summary[offset:offset + 3800]
             if offset:
                 chunk = "📩 MUROJAAT DAVOMI\n" + chunk
-            await context.bot.send_message(chat_id=LEADS_CHAT_ID, text=chunk)
+            await send_with_retry(context.bot.send_message, chat_id=LEADS_CHAT_ID, text=chunk)
         for i, answer in enumerate(answers):
-            if not answer or not answer.get("file_id"):
-                continue
-            file_id = answer["file_id"]
-            caption = f"{i+1}. {flow[i][0]}"
-            extra = answer.get("caption") or ""
-            if extra:
-                caption += f"\n{extra}"
-            caption = caption[:1000]
-            kind = answer.get("kind")
-            if kind == "photo":
-                await context.bot.send_photo(chat_id=LEADS_CHAT_ID, photo=file_id, caption=caption)
-            elif kind == "video":
-                await context.bot.send_video(chat_id=LEADS_CHAT_ID, video=file_id, caption=caption)
-            else:
-                await context.bot.send_document(chat_id=LEADS_CHAT_ID, document=file_id, caption=caption)
+            for n, file in enumerate((answer or {}).get("files") or []):
+                caption = f"{i+1}. {flow[i][0]}"
+                if n:
+                    caption += f" (davomi, {n+1}-fayl)"
+                extra = answer.get("caption") or ""
+                if extra and not n:
+                    caption += f"\n{extra}"
+                await send_file(context.bot, LEADS_CHAT_ID, file, caption[:1000])
     except Exception:
         log.exception("Murojaatni Telegram guruhiga yuborishda xatolik")
         await query.message.reply_text("⚠️ Murojaatni yuborishda xatolik yuz berdi. Iltimos, keyinroq qayta urinib ko‘ring yoki aloqa bo‘limidan bog‘laning.")
@@ -651,32 +781,87 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     log.error("Unhandled exception while processing update", exc_info=context.error)
 
 
-def main():
-    if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN environment o‘zgaruvchisi kiritilmagan.")
+async def show_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/id — joriy chat (guruh) ID raqamini ko'rsatadi. Guruhga botni qo'shib shuni yozing."""
+    chat = update.effective_chat
+    await update.effective_message.reply_text(
+        f"Bu chatning ID raqami:\n{chat.id}\n\n"
+        "Murojaatlar shu guruhga kelishi uchun bu raqamni .env faylidagi LEADS_CHAT_ID ga yozing "
+        "va botni qayta ishga tushiring."
+    )
+
+
+async def stale_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Eskirgan tugma (masalan, bot qayta ishga tushganda) bosilsa."""
+    await update.callback_query.answer("Bu tugma eskirgan. /start ni bosing.", show_alert=True)
+
+
+async def post_init(app: Application):
+    """Ishga tushganda guruh sozlamasini tekshiradi va logda aniq yo'l-yo'riq beradi."""
+    me = await app.bot.get_me()
+    log.info("Bot ulandi: @%s", me.username)
     if not LEADS_CHAT_ID:
-        log.warning("LEADS_CHAT_ID kiritilmagan. Murojaatlar yuborilmaydi; .env sozlang.")
-    app = Application.builder().token(BOT_TOKEN).build()
+        log.warning("LEADS_CHAT_ID kiritilmagan. Botni guruhga qo'shib, u yerda /id deb yozing, ID ni .env ga qo'ying.")
+        return
+    try:
+        chat = await app.bot.get_chat(LEADS_CHAT_ID)
+        log.info("Murojaatlar guruhi: %s", chat.title or chat.id)
+    except Exception as e:
+        log.error("Guruhga ulanib bo'lmadi (%s). LEADS_CHAT_ID to'g'rimi va bot guruhga qo'shilganmi?", e)
+
+
+def main():
+    first_run_wizard()
+    if not BOT_TOKEN:
+        raise RuntimeError(
+            "BOT_TOKEN kiritilmagan. .env faylini oching (yoki .env.example dan nusxa oling) "
+            "va BotFather bergan tokenni yozing."
+        )
+    if not LEADS_CHAT_ID:
+        log.warning("LEADS_CHAT_ID kiritilmagan. Murojaatlar yuborilmaydi; guruhda /id deb yozib ID ni oling.")
+    DATA_DIR.mkdir(exist_ok=True)
+    persistence = PicklePersistence(filepath=str(DATA_DIR / "bot_state.pkl"), update_interval=10)
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .persistence(persistence)
+        .post_init(post_init)
+        .build()
+    )
+    private = filters.ChatType.PRIVATE
+    media = (filters.PHOTO | filters.Document.ALL | filters.VIDEO
+             | filters.VOICE | filters.AUDIO | filters.VIDEO_NOTE)
     conv = ConversationHandler(
-        entry_points=[CommandHandler("start", start), CommandHandler("help", help_command)],
+        entry_points=[
+            CommandHandler("start", start, filters=private),
+            CommandHandler("help", help_command, filters=private),
+        ],
         states={
             CHOOSING: [MessageHandler(filters.TEXT & ~filters.COMMAND, main_choice)],
             CERT_MENU: [CallbackQueryHandler(menu_callback)],
             CUSTOMS_MENU: [CallbackQueryHandler(menu_callback)],
             COLLECTING: [
-                MessageHandler(filters.CONTACT | filters.PHOTO | filters.Document.ALL | filters.VIDEO | (filters.TEXT & ~filters.COMMAND), receive_answer),
+                MessageHandler(filters.CONTACT | media | (filters.TEXT & ~filters.COMMAND), receive_answer),
                 CallbackQueryHandler(menu_callback, pattern=r"^home$"),
             ],
-            REVIEW: [CallbackQueryHandler(review_callback, pattern=r"^review:"), CallbackQueryHandler(menu_callback, pattern=r"^home$")],
+            REVIEW: [
+                CallbackQueryHandler(review_callback, pattern=r"^review:"),
+                CallbackQueryHandler(menu_callback, pattern=r"^home$"),
+                MessageHandler(media, album_tail),
+            ],
             EDITING: [CallbackQueryHandler(edit_callback, pattern=r"^(edit:\d+|review:back)$")],
         },
         fallbacks=[CommandHandler("cancel", cancel), CommandHandler("start", start)],
         allow_reentry=True,
         per_chat=True,
         per_user=True,
+        name="biznes_himoya",
+        persistent=True,
     )
+    app.add_handler(CommandHandler("id", show_id))
     app.add_handler(conv)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, unknown_text))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & private, unknown_text))
+    app.add_handler(CallbackQueryHandler(stale_button))
     app.add_error_handler(error_handler)
     log.info("Biznes Himoya bot ishga tushmoqda")
     app.run_polling(allowed_updates=Update.ALL_TYPES)

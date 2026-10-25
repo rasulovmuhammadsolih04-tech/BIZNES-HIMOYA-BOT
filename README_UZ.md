@@ -1,53 +1,43 @@
 # Biznes Himoya Telegram boti
 
-Telegram orqali sertifikatlashtirish, import va eksport xizmatlari bo‘yicha murojaatlarni yig‘adi. Mijoz ma’lumotlarni ketma-ket yuboradi, yakunda tekshiradi va istalgan oldingi javobini almashtirishi mumkin. Murojaat hamda ilova qilingan fayllar avtomatik ravishda sozlangan mavjud Telegram guruhiga yuboriladi.
+Mijozlardan sertifikatlashtirish, import va eksport bo'yicha murojaat yig'adi va sizning Telegram guruhingizga yuboradi.
 
-## Asosiy imkoniyatlar
-- Yuridik xizmatlar hozircha menyuga kiritilmagan.
-- 18 ta sertifikatlashtirish yo‘nalishi.
-- Import va eksport xizmatlari uchun alohida menyular.
-- Mijoz matn, rasm, video yoki hujjat yuborishi mumkin.
-- Ixtiyoriy hujjat bo‘lmasa, o‘tkazib yuborish mumkin.
-- Yuborishdan oldin tekshirish va istalgan maydonni tahrirlash.
-- Murojaatni mavjud Telegram guruhiga va mijozga tasdiq xabarini yuborish.
-- Aloqa: +9989777121710, @yupiter_93, +998917399949.
+## Ishga tushirish (3 qadam)
 
-## 1. Telegram sozlamalari
-1. `@BotFather` orqali bot tokenini oling. Tokenni hech kimga yubormang.
-2. Mijoz murojaatlari keladigan mavjud Telegram guruhingizga botni qo‘shing.
-3. Botga guruhda xabar yuborish huquqini bering.
-4. Guruh ID raqamini aniqlang; superguruh ID ko‘pincha `-100...` bilan boshlanadi.
-5. `.env.example` faylidan nusxa olib `.env` deb nomlang.
-6. `.env` ichida `BOT_TOKEN` va `LEADS_CHAT_ID` qiymatlarini o‘zingiznikiga almashtiring.
+**1. Token oling.** Telegramda `@BotFather` → `/newbot` → nom va username bering → **token**ni nusxalang.
 
-**Tokenni kodga yozmang va GitHub’ga `.env` faylini yuklamang.** Agar token avval oshkor bo‘lgan bo‘lsa, BotFather orqali yangisini yarating.
+**2. Botni ishga tushiring.**
+- **Windows:** `start.bat` ni ikki marta bosing.
+- **Linux / Mac / VPS:** `./start.sh`
 
-## 2. Docker bilan ishga tushirish
+Birinchi marta bot o'zi tokenni so'raydi va `.env` faylini yaratadi. Python kerak (3.10 yoki yangi). Keyingi safar tokenni so'ramaydi.
+
+**3. Guruhni ulang.**
+1. Murojaatlar keladigan Telegram guruhini oching, botni guruhga qo'shing.
+2. Guruhda `/id` deb yozing — bot guruh ID raqamini aytadi (`-100...`).
+3. Shu raqamni `.env` faylidagi `LEADS_CHAT_ID=` ga yozing va botni qayta ishga tushiring (oynani yoping, `start.bat` ni qayta oching).
+
+Tayyor. Botga o'tib `/start` bosing va sinab ko'ring: oxirida murojaat guruhga tushishi kerak.
+
+## Doim ishlashi uchun
+Bot ishlab turgan kompyuter yoki server o'chmasligi kerak. Eng qulayi — arzon VPS. Docker bor bo'lsa:
 ```bash
-cp .env.example .env
-# .env faylini tahrirlang
 docker compose up -d --build
 docker compose logs -f
 ```
-To‘xtatish:
-```bash
-docker compose down
-```
 
-## 3. Lokal ishga tushirish
-Python 3.12 tavsiya qilinadi.
-```bash
-python -m venv .venv
-# Linux/macOS:
-source .venv/bin/activate
-# Windows PowerShell:
-# .venv\\Scripts\\Activate.ps1
-pip install -r requirements.txt
-python bot.py
-```
+## Nimalar yaxshilangan
+- Mijoz bir nechta rasm/faylni albom qilib yuborsa, hammasi bitta javobga qo'shiladi.
+- Bot qayta yonsa ham mijozning yarim to'ldirgan arizasi yo'qolmaydi (`data/` papkasi).
+- Ovozli xabar, audio va video xabar ham qabul qilinadi.
+- Bot faqat shaxsiy chatda ishlaydi (guruhda menyu chiqarib tashvish bermaydi).
+- Ishga tushganda guruh ulanganini tekshiradi va logda aniq yozadi.
+
+## Sozlash
+- Telefon raqamlari va Telegram username: `bot.py` boshidagi `ALOQA MA'LUMOTLARI` qismi.
+- Xizmatlar va savollar: `bot.py` ichidagi `CERTIFICATION_OPTIONS`, `SERVICE_FLOWS`.
 
 ## Eslatmalar
-- Bu bot polling usulidan foydalanadi; doimiy ishlashi uchun kompyuter/server doim yoqilgan bo‘lishi kerak.
-- Murojaatlar ma’lumotlar bazasiga saqlanmaydi; Telegram guruhiga yuboriladi.
-- Hujjatlar ro‘yxati dastlabki ma’lumot yig‘ish uchun mo‘ljallangan. Aniq talablar mahsulot turi, TN VED kodi, mamlakat va amaldagi qoidalarga qarab mutaxassis tomonidan tekshirilishi kerak.
-- Guruhga murojaat yuborish muvaffaqiyatli bo‘lishi uchun `LEADS_CHAT_ID` to‘g‘ri bo‘lishi va bot guruhda xabar yubora olishi shart.
+- `.env` faylini hech kimga yubormang va GitHub'ga yuklamang. Token sizib chiqsa, BotFather'da `/revoke` qiling.
+- Murojaatlar bazaga saqlanmaydi, faqat guruhga yuboriladi.
+- Hujjatlar ro'yxati dastlabki ma'lumot yig'ish uchun; aniq talabni mutaxassis tekshiradi.
